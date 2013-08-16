@@ -1,0 +1,810 @@
+<?xml version="1.0" encoding="utf-8"?>
+<csxs:CSExtension title="HD MAM Extension" xmlns:fx="http://ns.adobe.com/mxml/2009"
+				  xmlns:s="library://ns.adobe.com/flex/spark"
+				  xmlns="http://ns.adobe.com/air/application/3.4"
+				  xmlns:csxs="com.adobe.csxs.core.*"
+				  xmlns:mx="library://ns.adobe.com/flex/mx"
+				  width="1005" height="570" applicationComplete="appComplete()">
+	<fx:Script>
+		<![CDATA[
+			import HDStation2.Login;
+			
+			import com.adobe.csawlib.premiere.Premiere;
+			import com.adobe.csxs.core.CSInterface;
+			import com.adobe.csxs.core.csxs_internal;
+			import com.adobe.premiere.App;
+			import com.adobe.premiere.Project;
+			import com.adobe.premiere.Sequence;
+			
+			import flash.events.Event;
+			import flash.filesystem.File;
+			import flash.filesystem.FileMode;
+			import flash.filesystem.FileStream;
+			import flash.trace.Trace;
+			import flash.utils.ByteArray;
+			
+			import flashx.textLayout.events.SelectionEvent;
+			
+			import mx.collections.ArrayCollection;
+			import mx.collections.XMLListCollection;
+			import mx.containers.TitleWindow;
+			import mx.controls.Alert;
+			import mx.controls.Label;
+			import mx.core.ComponentDescriptor;
+			import mx.core.IFlexDisplayObject;
+			import mx.data.ChangedItems;
+			import mx.events.FileEvent;
+			import mx.events.FlexMouseEvent;
+			import mx.events.ListEvent;
+			import mx.events.TreeEvent;
+			import mx.managers.PopUpManager;
+			import mx.rpc.AsyncToken;
+			import mx.rpc.events.FaultEvent;
+			import mx.rpc.events.ResultEvent;
+			import mx.utils.ArrayUtil;
+			
+			import services.hdserviceapi.HDServiceAPI;
+			
+			import spark.components.Application;
+			import spark.events.GridEvent;
+			import spark.events.GridSelectionEvent;
+			import spark.events.IndexChangeEvent;
+			
+			[Bindable]
+			
+			private var hostName:String = HostObject.mainExtension;
+			private var myWS: HDServiceAPI = null;
+			private var currentUser:String = null;
+			private var loginDialog: Login ;
+			private var masterclips:ArrayCollection = new ArrayCollection();
+			private var sectors:ArrayCollection = new ArrayCollection();
+			private var cliptypes: ArrayList = new ArrayList();
+			private var selectedMasterClip:int = -1;
+			private var selectedSector:int = -1;
+			private var selectedFileIndex:int = -1;
+			private var clipsXML:ArrayCollection = new ArrayCollection();
+			private var clipsXML2:ArrayCollection =  new ArrayCollection();
+			private var treeData: XMLListCollection = new XMLListCollection();
+			private var currentDir:String = "";
+			private var fullFileName:String = "";
+			private var buttonIngestClicked:Boolean = false;
+			private var isfromfile:Boolean = false;
+			private var isfromxml:Boolean = false;
+			private var gridtempdata: ArrayCollection = new ArrayCollection();
+			private var browfilename:String = "";
+			private var stograte:ArrayCollection = new ArrayCollection(
+				[{label: "Local"}, {label:"Network"}]
+			);
+			private var copyStack:ArrayCollection = new ArrayCollection();
+			private var userDepartment:String = "";
+			private var userFullName:String = "";
+			//fs.openAsync(file, FileMode.READ);
+			public function appComplete():void{
+				initTree();
+				CSInterface.instance.autoThemeColorChange = true;
+				showLogin();
+				comboboxRender();
+				cliptype_Render();
+				sectorRender();
+				cbx_Storage.dataProvider = stograte;
+				//getDepartment(loginDialog.userId);
+			}
+		
+			protected function getUserInfor(userId:String):void{
+				//var departmentName:String = "";
+				myWS = new HDServiceAPI();
+				var sql:String = "SELECT d.DEPARTMENT_NAME, su.FULL_NAME FROM SYSTEM_USERS su " +
+					" INNER JOIN EMPLOYEE e ON su.EMPLOYEE_ID = e.EMPLOYEE_ID " +
+					" INNER JOIN DEPARTMENT d ON e.DEPARTMENT_ID = d.DEPARTMENT_ID " +
+					" WHERE su.USER_ID = "+userId;
+				trace("sql = "+sql);
+				myWS.addEventListener("result",getDepartment_resultHandler);
+				myWS.ExecuteReadSQL(sql);
+				trace("vua excute xong");
+				//return departmentName;
+			}
+			
+			protected function getDepartment_resultHandler(event:ResultEvent):void{
+				//var res:ArrayCollection = event.result as ArrayCollection;
+				trace("thanh debug:project ID  = "+event.result[0]);
+				if(event.result.length>0){
+					userDepartment = event.result[0];
+					userFullName = event.result[1];
+				}
+				
+				//insertClip(res);
+			}
+			
+			protected function copy(filename:String,id:int, foldername:String = "D://Copy//Thành lê//"):void{
+				var gridtempdata:ArrayCollection = ingestDataGrid.dataProvider as ArrayCollection;
+				var readStream:FileStream = new FileStream();
+				var writeStream:FileStream = new FileStream();
+				var newfilename:String = filename.match(/\w*\.\w*/g).toString();
+				//trace("news file name: "+newfilename);
+				var filenguon:File = new File(filename);
+				readStream.addEventListener(ProgressEvent.PROGRESS,progressupdate);
+				readStream.addEventListener(IOErrorEvent.IO_ERROR,ErrorHandler);
+				readStream.openAsync(filenguon, FileMode.READ );
+				var filedich:File = new File(foldername+newfilename);
+				writeStream.openAsync(filedich,FileMode.UPDATE);
+				var per:int = 0;
+				var folderName:String = "D:\\Copy\\"+userDepartment+"\\"+cbx_masterclip.selectedItem.label+"\\"+userFullName+"\\"+txt_projectName.text+"\\";
+				function progressupdate(event:ProgressEvent):void{
+					var i:int = readStream.position;
+					var data :ByteArray = new ByteArray();
+					readStream.readBytes(data);
+					writeStream.writeBytes(data);
+					per = 100*(event.bytesLoaded/event.bytesTotal);
+					//test.text = "Coping: " + per+"%";
+					copyProgressBar.setProgress(event.bytesLoaded,event.bytesTotal);
+					copyProgressBar.label = "Đang copy file: "+newfilename+"	"+per+"%";
+					if(event.bytesLoaded == event.bytesTotal){
+						readStream.close();
+						writeStream.close();
+//						trace("Da close");
+//						trace("Phong ban: "+userDepartment);
+//						trace("Chuyen muc: "+cbx_masterclip.selectedItem.label);
+//						trace("full name: "+userFullName);
+//						trace("ten project: "+txt_projectName.text);
+//						trace("ten projectID: "+id);
+						if(copyStack.length > 0){
+							var stt:int =0;
+							for each(var clip:* in copyStack){
+								trace("filename: " + clip.filename + "clip.done: "+clip.done);
+								//trace("id: "+ i.id +" uri: " + i.filedir + " maBang: "+i.maBang+" timecode vao: "+i.tcin+" timecode ra: "+i.tcout);
+								if(!clip.done){
+									copy(clip.filename,id,folderName);
+									clip.done = true;
+									ingestDataGrid.dataProvider[stt].status = "Đang copy...";
+									ingestDataGrid.dataProvider = gridtempdata;
+									ArrayCollection(ingestDataGrid.dataProvider).refresh();
+									break;
+								}else{
+									trace("Cập nhật row: "+stt);
+									ingestDataGrid.dataProvider[stt].status = "Xong!";
+									ingestDataGrid.dataProvider = gridtempdata;
+								}
+								stt++;
+							}
+							ArrayCollection(ingestDataGrid.dataProvider).refresh();
+						}
+					}
+					
+				}
+				
+			}
+			
+			protected function ErrorHandler(e:ErrorEvent):void{
+				Alert.show(e.text);
+			}
+			protected function button1_clickHandler(event:MouseEvent):void
+			{
+				// TODO Auto-generated method stub
+				trace("import all");
+				
+				if(clipsXML2.length >0){
+					var app:App = Premiere.app;
+					var pjct:Project=app.project;
+					var seq:Sequence = pjct.sequences[0];
+					trace("length: " + clipsXML2.length);
+					var filesArray: Array=[];
+					if(pjct != null)
+					{
+						var tem:String;
+						//if(isfromfile){
+						for each(var i:* in clipsXML2){
+							tem = i.uri as String;
+							//tem = tem.substring(8,tem.length);
+							//tem = tem.replace( /(\/)/g, '\\');
+							filesArray.push(tem);
+							trace("URI = "+tem);
+						}
+						pjct.importFiles(filesArray);
+					}
+					trace("null");
+				}else{
+					Alert.show("Chưa chọn file để import");
+				}
+				
+			}
+
+			protected function btnChooseFile_clickHandler(event:MouseEvent):void
+			{
+				// TODO Auto-generated method stub
+				isfromxml = true;
+				isfromfile = false;
+				var tempfile: File = new File();
+				var txtFilter: FileFilter = new FileFilter("XMl Documents", "*.xml");
+				tempfile.addEventListener(Event.SELECT, exFileSelect);
+				tempfile.browseForOpen("Chon file XML",[txtFilter]);
+				
+			}
+			//Đọc file XML
+			protected function exFileSelect(event:Event):void{
+				var fileStream:FileStream = new FileStream();
+				var tempfile:File = event.currentTarget as File;
+				fileStream.open(tempfile,FileMode.READ);
+				//				trace("thanh debug: filename  = "+ tempfile.name);
+				//				trace("thanh debug: nativepath  = "+ tempfile.parent.url);
+				currentDir = tempfile.parent.url;
+				var XMLstr:String = fileStream.readUTFBytes(fileStream.bytesAvailable);
+				var xmlResults:XML = new XML(XMLstr);
+				var sonyns: Namespace = new Namespace("http://xmlns.sony.net/pro/metadata/mediaprofile");
+				default xml namespace = sonyns;
+				var str:XMLList = xmlResults..Material.Component;
+				var myDP:ArrayCollection = new ArrayCollection();
+				clipsXML.removeAll();
+				var id:int = 0;
+				var uri:String = "";
+				for each (var index:* in str) 
+				{
+					uri	= index.@uri;
+					uri = uri.substring(1,uri.length); 
+					uri = currentDir+uri;
+					fullFileName = uri;
+					uri = uri.match(/\w*\.\w*/g).toString();
+					clipsXML.addItem({id:id, uri:uri, filedir:fullFileName, tcin: "00:00:00:00", tcout:convertSecToTimecode(index.@dur,index.@fps), dur:index.@dur, fps:index.@fps, aspectRatio:index.@aspectRatio, status:""});
+					id++;
+				}
+				//				trace("file dir: "+fullFileName);
+				default xml namespace = new Namespace("");
+				ingestDataGrid.dataProvider = clipsXML;
+			}
+			
+			
+			//init function
+			protected function initTree():void{
+				myWS = new HDServiceAPI();
+				var sql:String = "SELECT department.DEPARTMENT_NAME as N'deparementname', " +
+					"masterclip.MASTER_CLIP_NAME AS 'masterclipname', " +
+					"systemuser.FULL_NAME AS 'username', " +
+					"clipproject.CREATE_DATE AS 'date', " +
+					"clipproject.NAME AS 'name', clipproject.ID AS 'id', " +
+					"infortape.MA_BANG AS 'mabang', infortape.FILE_NAME AS 'filename' " +
+					"FROM INFORTAPE infortape " +
+					"INNER JOIN CLIP_PROJECT clipproject ON clipproject.ID = infortape.PROJECT_ID " +
+					"INNER JOIN MASTER_CLIP masterclip ON masterclip.MASTER_CLIP_ID = clipproject.MASTER_CLIP_ID " +
+					"INNER JOIN SYSTEM_USERS systemuser ON clipproject.USER_ID =systemuser.USER_ID " +
+					"INNER JOIN EMPLOYEE E ON E.EMPLOYEE_ID = systemuser.EMPLOYEE_ID " +
+					"INNER JOIN DEPARTMENT department ON department.DEPARTMENT_ID = E.DEPARTMENT_ID " +
+					"WHERE infortape.PROJECT_ID IS NOT NULL "+
+					"order by department.DEPARTMENT_NAME,masterclip.MASTER_CLIP_NAME, systemuser.USER_NAME "+
+					"FOR XML AUTO,root('list') ";
+				myWS.addEventListener("result",treeRender_resultHandler);
+				myWS.SQLReaderXML(sql);
+
+			}
+			
+			private function sectorRender():void{
+				myWS = new HDServiceAPI();
+				var sql:String = "SELECT S.SECTOR_ID ,S.SECTOR_NAME FROM SECTOR S";
+				myWS.addEventListener("result",cbxSector_resultHandler);
+				myWS.ExecuteReadSQL(sql);
+			}
+			
+			private function cbxSector_resultHandler(event:ResultEvent):void{
+				var res:ArrayCollection = event.result as ArrayCollection;
+				trace("sector: "+res);
+				for each (var i:* in res) 
+				{
+					sectors.addItem({label:i[1], data:i[0]});
+				}
+			}
+			
+			private function comboboxRender():void{
+				myWS = new HDServiceAPI();
+				var sql:String = "SELECT MC.MASTER_CLIP_ID AS data, MC.MASTER_CLIP_NAME AS label FROM MASTER_CLIP MC";
+				myWS.addEventListener("result",cbxrender_resultHandler);
+				myWS.ExecuteReadSQL(sql);
+			}
+			private function cbxrender_resultHandler(event:ResultEvent):void{
+				var res:ArrayCollection = event.result as ArrayCollection;
+				trace("masterclips: "+res);
+				for each (var i:* in res) 
+				{
+					masterclips.addItem({label:i[1], data:i[0]});
+				}
+			
+			}
+			
+			private function showLogin():void {
+				loginDialog = Login(PopUpManager.createPopUp(this, Login, true));
+				loginDialog.title = "Đăng nhập HDStation2";
+				loginDialog.x = 400;
+				loginDialog.y = 200;
+				loginDialog["btn_login"].addEventListener("click", submitData); 
+			}
+			//thực hiện ngay sau khi ấn nút đăng nhập
+			private function submitData(event:Event):void {
+				
+			}
+
+			// nut chon file
+			protected function treeRender_resultHandler(event:ResultEvent):void
+			{
+				trace("begin treerender");
+				var res:String = event.result as String;
+				//trace("res = "+res.toXMLString());
+				var xmllist:XMLList = new XMLList(res);
+				treeData = new XMLListCollection(xmllist);
+				trace("done");
+				
+			}
+			
+			private function treeLabel(item:Object):String {
+				var node:XML = XML(item);
+				if( node.localName() == "department")
+					return node.@deparementname;
+				else
+					if(node.localName() == "masterclip")
+						return node.@masterclipname;
+					else
+						if(node.localName() == "systemuser")
+							return node.@username;
+						else
+							if(node.localName() == "clipproject")
+								return node.@name;
+							else
+								if(node.localName() == "infortape")
+									return node.@mabang;
+								else
+									return null;
+			}
+			
+			protected function clipRequest_faultHandler(event:FaultEvent):void
+			{
+				// TODO Auto-generated method stub
+				Alert.show("Khong ket noi duoc voi DataBase");
+			}
+			
+		
+			//Chọn từng row trong table
+			protected function ingestDataGrid_selectionChangeHandler(event:GridSelectionEvent):void
+			{
+				var uri:String = new String(event.target.selectedItem.filedir);
+				if(isfromxml){
+					uri = uri.substring(8,uri.length);
+					uri = uri.replace( /(\/)/g, '\\');
+				}
+				trace("string: "+uri);
+				var file:File = new File(uri);
+				
+			}
+			
+			protected function btnFromFile_clickHandler(event:MouseEvent):void
+			{
+				// TODO Auto-generated method stub
+				isfromxml = false;
+				isfromfile = true;
+				var tempfile: File = new File();
+				var adobeFilter:FileFilter = new FileFilter("XMl Documents", "*.*");
+				tempfile.addEventListener(FileListEvent.SELECT_MULTIPLE, browsefile_resultHandler);
+				tempfile.browseForOpenMultiple("Choose File Media to Ingest",[adobeFilter]);
+			}
+			
+			protected function browsefile_resultHandler(event:FileListEvent):void{
+				trace("files length: "+event.files.length);
+				//currentDir = event.files[0];
+				//trace("current dir = " + currentDir);
+				clipsXML.removeAll();
+				selectedFileIndex = 1;
+				var files:Array = event.files;
+				browfilename = files[0].nativePath;
+				
+				for each(var i:* in files){
+					clipsXML.addItem({id:selectedFileIndex, uri:i.nativePath, filedir: i.nativePath});
+					selectedFileIndex++;
+				}
+				ingestDataGrid.dataProvider = clipsXML;
+				
+			}
+			//nut ingestAll
+			protected function btn_Ingest_clickHandler(event:MouseEvent):void
+			{
+				buttonIngestClicked = true;
+				
+				if(loginDialog.userId == ""){
+					showLogin();
+				}else{
+					//getUserInfor(loginDialog.userId);
+					insertProject(txt_projectName.text, txt_description.text, selectedMasterClip);
+				}
+			}
+			
+			public function insertProject(projectName:String, description:String, masterclipId:int ):void{
+				if(projectName != "" && description != "" && masterclipId != -1){
+					var sql:String = "INSERT INTO CLIP_PROJECT (NAME, DESCRIPTION, MASTER_CLIP_ID, USER_ID) VALUES ('"+projectName+"','"+description+"',"+masterclipId+","+loginDialog.userId+") select SCOPE_IDENTITY();";
+					trace("thanh debug insertProject: " + sql);
+					myWS.addEventListener("result",insertProject_resultHandler);
+					myWS.IdentifyExecute(sql);
+				}else{
+					Alert.show("Xin mời nhập đầy đủ thông tin");
+				}
+				
+			}
+			
+			//INSERT project vao db
+			private function insertProject_resultHandler(event:ResultEvent):void{
+				var res: int = event.result as int;
+				trace("thanh debug:project ID  = "+res);
+				userDepartment = loginDialog.userDepartment;
+				userFullName = loginDialog.userFullName;
+				var clips:ArrayCollection = new ArrayCollection();
+				clips = ingestDataGrid.dataProvider as ArrayCollection;
+				if(userDepartment != "" && userFullName != null){
+					if(clips != null){
+						copyStack.removeAll();
+						trace("filename: " + browfilename);
+						
+						for each(var i:* in clips){
+							copyStack.addItem({filename:i.filedir, done:false});
+						}
+						insertClip(res);
+					}else{
+						Alert.show("Bạn chưa chọn file để Ingest vào hệ thống");
+					}
+					
+				}else{
+					Alert.show("ERROR: Không có tên user và tên phòng ban");
+				}
+				
+			}
+			
+			//INSERT CLIP
+			public function insertClip(projectId:int):void{
+				var sql:String = "INSERT INTO INFORTAPE (MA_BANG, FILE_NAME, SECTION, TC_IN, TC_OUT, TEN_CHUONG_TRINH, USERID, ASPECT_RATIO, PROJECT_ID) VALUES ";
+				var value:String = "";
+				var gridtempdata:ArrayCollection = ingestDataGrid.dataProvider as ArrayCollection;
+//				trace("thanh debug insertProject: " + sql);
+//				trace("Da close");
+//				trace("Phong ban: "+userDepartment);
+//				trace("Chuyen muc: "+cbx_masterclip.selectedItem.label);
+//				trace("full name: "+userFullName);
+//				trace("ten project: "+txt_projectName.text);
+//				trace("ten projectID: "+id);
+				var folderName:String = "D:\\Copy\\"+userDepartment+"\\"+cbx_masterclip.selectedItem.label+"\\"+userFullName+"\\"+txt_projectName.text+"\\";
+				if(copyStack.length > 0){
+					trace("begin for each");
+					var stt:int = 0;
+					for each(var i:* in copyStack){
+						trace("copy 1 clip");
+						if(!i.done){
+							copy(i.filename,projectId,folderName);
+							i.done = true;
+							ingestDataGrid.dataProvider[stt].status = "Đang copy...";
+							ingestDataGrid.dataProvider = gridtempdata;
+							ArrayCollection(ingestDataGrid.dataProvider).refresh();
+							break;
+						}
+						stt++;
+					}
+//						//sql += value;
+//						trace("end for each");
+				}else{
+					Alert.show("Không có clip để insert");
+				}
+//				myWS.addEventListener("result",insertClip_resultHandler);
+//				myWS.ExecuteSQL(sql);
+			}
+
+			private function insertClip_resultHandler(event:ResultEvent):void{
+				var res: int = event.result as int;
+				trace("thanh debug: number of colum = "+res);
+
+			}
+			
+			
+			protected function cbx_masterclip_changeHandler(event:IndexChangeEvent):void
+			{
+				// TODO Auto-generated method stub
+				trace(cbx_masterclip.selectedItem.data);
+				selectedMasterClip = cbx_masterclip.selectedItem.data;
+			}
+			
+			protected function dictoryTree_itemOpenHandler(event:TreeEvent):void
+			{
+				// TODO Auto-generated method stub
+				trace ("item open: "+event.item);
+			}
+
+			
+			protected function btn_ImportAll_clickHandler(event:MouseEvent):void
+			{
+				if(clipsXML.length >0){
+					var app:App = Premiere.app;
+					var pjct:Project=app.project;
+					var seq:Sequence = pjct.sequences[0];
+					trace("length: " + clipsXML.length);
+					var filesArray: Array=[];
+					if(pjct != null)
+					{
+						var tem:String;
+						if(isfromfile){
+							for each(var i:* in clipsXML){
+								tem = i.uri as String;
+								filesArray.push(tem);
+								trace("URI = "+tem);
+							}
+						}else{
+							for each(var j:* in clipsXML){
+								tem = j.filedir as String;
+								tem = tem.substring(8,tem.length);
+								tem = tem.replace( /(\/)/g, '\\');
+								filesArray.push(tem);
+								trace("URI = "+tem);
+							}
+						}
+						
+						pjct.importFiles(filesArray);
+						Alert.show("đã ingest và import thành công");
+					}
+					trace("null");
+				}else{
+					Alert.show("Chưa chọn file để import");
+				}
+				
+			}
+			
+			public function cliptype_Render():void{
+				myWS = new HDServiceAPI();
+				var sql:String = "SELECT ct.TYPE_DESCRIPTION FROM CLIP_TYPE ct";
+				myWS.addEventListener("result",cliptype_resultHander);
+				myWS.ExecuteReadSQL(sql);
+			}
+			
+			protected function cliptype_resultHander(event:ResultEvent):void{
+				
+				var res:ArrayCollection = event.result as ArrayCollection;
+				trace("res = "+res);
+				for each (var i:* in res) 
+				{
+					cliptypes.addItem(i[0]);
+				}
+				trace("cliptypes = "+cliptypes);
+			}
+			
+			private function convertSecToTimecode(dur:int, fps:String):String
+			{
+				if(fps.length > 0){
+					var ip:String = fps.charAt(fps.length-1);
+					var fpsregex:RegExp = /[0-9]*/;
+					var fpsnumber:int = new int(fps.match(fpsregex));
+					var h:int = 0;
+					var m:int = 0;
+					var s:int = 0;
+					var f:int = 0;
+					var hh:String = "00";
+					var mm:String = "00";
+					var ss:String = "00";
+					var ff:String = "00";
+
+						if(ip == "i"){
+							fpsnumber = Math.floor(fpsnumber/2);
+						}
+
+						if(dur >= fpsnumber){
+							f = dur % fpsnumber;
+							if(f < 10){
+								ff = "0" + f;
+							}else{
+								ff = new String(f);
+							}
+							dur = Math.floor(dur/fpsnumber);
+//							trace("thanh debug dur: "+dur);
+							if(dur >= 3600){
+								h = Math.floor(s/3600);
+								if(h < 10){
+									hh = "0" + h;
+								}else{
+									hh = new String(h);
+								}
+								dur = dur % 3600;
+							}
+							if(dur >= 60){
+								m = Math.floor(s/60);
+								if(m < 10){
+									mm = "0" + m;
+								}else{
+									mm = new String(m);
+								}
+								s = dur % 60;
+								if(s < 10){
+									ss = "0" + s;
+								}else{
+									ss = new String(s);
+								}
+							}else{
+								s = dur % 60;
+								if(s < 10){
+									ss = "0" + s;
+								}else{
+									ss = new String(s);
+								}
+							}
+						}else{
+							f = dur % fpsnumber;
+							if(f < 10){
+								ff = "0" + f;
+							}else{
+								ff = new String(f);
+							}
+						}
+						return hh+ ":" + mm + ":"+ ss +":" + ff;
+					
+				}else{
+					return "XX:XX:XX:XX";
+				}
+				
+			}
+			
+			
+			protected function cbx_Sector_changingHandler(event:IndexChangeEvent):void
+			{
+				// TODO Auto-generated method stub
+				selectedSector = cbx_Sector.selectedItem.data;
+				trace("Sector ID: "+selectedSector);
+			}
+			
+			protected function dictoryTree_changeHandler(event:ListEvent):void
+			{
+				var nodeData:XML = new XML(event.itemRenderer.data);
+				var id:String = nodeData.attribute("id");
+				myWS = new HDServiceAPI();
+				if(id != ""){
+					trace("ID = "+id);
+					var sql:String = "SELECT * FROM INFORTAPE WHERE PROJECT_ID = "+id;
+					myWS.addEventListener("result",cliptable_resultrender);
+					myWS.ExecuteReadSQL(sql);
+				}else{
+					trace("ID = null");
+				}
+			}
+			public function cliptable_resultrender(event:ResultEvent):void{
+				var res:ArrayCollection = event.result as ArrayCollection;
+				trace("res clips = "+res);
+				//var uri:String = "";
+				clipsXML2.removeAll();
+				for each (var i:* in res) 
+				{
+					trace("index = "+i);
+					var temp:String = i[25];
+					temp = temp.replace( /(\/)/g, '\\');
+					clipsXML2.addItem({id:i[0], maBang:i[1], uri:temp, tcin: i[2], tcout:i[3]});
+					
+				}
+				importDataGrid.dataProvider = clipsXML2;
+			}
+			
+			protected function btn_Copy_clickHandler(event:MouseEvent):void
+			{
+				// TODO Auto-generated method stub
+				
+			}
+			
+			protected function button2_clickHandler(event:MouseEvent):void
+			{
+				//getDepartment(13);
+				//trace("test phat roi di ngu: "+getDepartment(13));
+				// TODO Auto-generated method stub
+				copyStack.removeAll();
+				trace("filename: " + browfilename);
+				var clips:ArrayCollection = new ArrayCollection();
+				clips = ingestDataGrid.dataProvider as ArrayCollection;
+				if(clips.length > 0){
+					for each(var i:* in clips){
+						copyStack.addItem({filename:i.filedir, done:false});
+						//trace("copy Stack: "+copyStack.length);
+					}
+					insertClip(1);
+				}else{
+					Alert.show("Chua chon file");
+				}
+				
+			}
+			
+			protected function btn_IngestSelected_clickHandler(event:MouseEvent):void
+			{
+				// TODO Auto-generated method stub
+				
+				var gridtempdata:ArrayCollection = ingestDataGrid.dataProvider as ArrayCollection;
+				ingestDataGrid.dataProvider = gridtempdata;
+				ArrayCollection(ingestDataGrid.dataProvider).refresh();
+			}
+			
+		]]>
+	</fx:Script>
+	<fx:Declarations>
+		<s:WebService id="clipRequest" fault="clipRequest_faultHandler(event)" wsdl="http://192.168.1.201:1505/HDServiceAPI/services/HDServiceAPI?wsdl"/>
+	</fx:Declarations>
+	<s:VGroup width="999" height="100%" horizontalAlign="center" verticalAlign="middle">
+		<mx:TabNavigator  x="-3" y="-1" width="998" height="541" paddingLeft="0" paddingTop="0">
+			<s:NavigatorContent width="100%" height="100%" label="Ingest">
+				<s:Button id="btnChooseFile" x="29" y="110" width="86" height="30" label="From XML"
+						  click="btnChooseFile_clickHandler(event)"/>
+				<s:DataGrid id="ingestDataGrid" y="148" width="95%" height="362" horizontalCenter="0"
+							requestedRowCount="10" editable="true" validationSubField="0-9"
+							selectionChange="ingestDataGrid_selectionChangeHandler(event)"
+							selectionMode="multipleRows">
+					<s:columns>
+						<s:ArrayList>
+							<s:GridColumn dataField="id" width="50" headerText="ID"></s:GridColumn>
+							<s:GridColumn dataField="maBang" headerText="Mã Băng">
+								
+							</s:GridColumn>
+							<s:GridColumn dataField="uri" width="250"  headerText="Filename"></s:GridColumn>
+						<!--	<s:GridColumn dataField="cliptype" headerText="Loại Clip" >
+								<s:itemEditor> 
+									<fx:Component> 
+										<s:ComboBoxGridItemEditor dataProvider="{outerDocument.cliptypes}"/>
+									</fx:Component> 
+								</s:itemEditor>    
+							</s:GridColumn>-->
+							<s:GridColumn dataField="tcin" headerText="Timecode vào"></s:GridColumn>
+							<s:GridColumn dataField="tcout" headerText="Timecode ra"></s:GridColumn>
+							<s:GridColumn dataField="dur" headerText="Duration (f)"></s:GridColumn>
+							<s:GridColumn dataField="fps" headerText="fps"></s:GridColumn>
+							<s:GridColumn dataField="aspectRatio" headerText="aspectRatio"></s:GridColumn>
+							<s:GridColumn dataField="status" headerText="Trạng thái copy"></s:GridColumn>
+						</s:ArrayList>
+					</s:columns>
+					<s:typicalItem>
+						<fx:Object dataField1="Sample Data" dataField2="Sample Data"
+								   dataField3="Sample Data"></fx:Object>
+					</s:typicalItem>
+					
+				</s:DataGrid>
+				<s:Label id="test" x="311" y="72" width="375" height="30" fontSize="14" text="{ingestDataGrid.selectedItem.uri}"
+						 verticalAlign="middle"/>
+				<s:Button id="btnFromFile" x="123" y="110" width="86" height="30" label="From File"
+						  click="btnFromFile_clickHandler(event)"/>
+				<s:Button id="btn_Ingest" x="217" y="110" width="86" height="30" label="Ingest All"
+						  click="btn_Ingest_clickHandler(event)" />
+				<s:Button id="btn_ImportAll" x="442" y="110" width="112" height="30" label="Import &amp; Ingest"
+						  click="btn_ImportAll_clickHandler(event)"/>
+				<s:Label x="29" y="22" width="100" height="15" text="Tên Project:"/>
+				<s:TextInput id="txt_projectName" x="117" y="15" width="230" height="22"/>
+				<s:Label x="366" y="22" width="100" height="15" text="Mô tả:"/>
+				<s:TextInput id="txt_description" x="403" y="15" width="568" height="22"/>
+				<s:Label x="660" y="51" width="100" height="15" text="Chuyên mục:"/>
+				<s:ComboBox change="cbx_masterclip_changeHandler(event)"  id="cbx_masterclip" dataProvider="{masterclips}" x="741" y="45" width="230" height="22" />
+				<s:Label x="29" y="52" width="100" height="15" text="Chọn ổ đĩa:"/>
+				<s:ComboBox  id="cbx_Storage"  x="117" y="45" width="230" height="22" />
+				<s:Label x="366" y="52" width="100" height="15" text="Kênh:"/>
+				<s:ComboBox  id="cbx_Sector"  x="403" y="45" width="230" height="22" dataProvider="{sectors}" changing="cbx_Sector_changingHandler(event)"/>
+				<s:CheckBox x="118" y="75" label="is public"/>
+				<s:Button click="button2_clickHandler(event)"  x="217" y="75" width="86" label="copy"/>
+				
+				<mx:ProgressBar id="copyProgressBar" x="562" y="110" width="409" height="30"
+								mode="manual" label=""/>
+				<s:Button id="btn_IngestSelected" x="311" y="110" width="122" height="30"
+						  label="Ingest file đã chọn" click="btn_IngestSelected_clickHandler(event)"/>
+				
+			</s:NavigatorContent>
+			<s:NavigatorContent width="100%" height="100%" label="Import">
+				<s:Button x="335" y="11" width="94" height="28" label="Import"
+						  click="button1_clickHandler(event)"/>
+				<s:DataGrid id="importDataGrid" x="335" y="47" width="651" height="443" requestedRowCount="4"
+							selectionMode="multipleRows" editable="true" >
+					<s:columns>
+						<s:ArrayList>
+							<s:GridColumn dataField="id" width="50" headerText="ID"></s:GridColumn>
+							<s:GridColumn dataField="maBang" headerText="Mã Băng"></s:GridColumn>
+							<s:GridColumn dataField="uri" width="250"  headerText="Filename"></s:GridColumn>
+							<s:GridColumn dataField="tcin" headerText="Timecode vào"></s:GridColumn>
+							<s:GridColumn dataField="tcout" headerText="Timecode ra"></s:GridColumn>
+						</s:ArrayList>
+					</s:columns>
+				</s:DataGrid>
+				<mx:Tree id="dictoryTree" x="10" y="10" width="317" height="480" showRoot="false"
+						 dataProvider="{treeData}" labelFunction="treeLabel" itemOpen="dictoryTree_itemOpenHandler(event)"  
+						 change="dictoryTree_changeHandler(event)"
+						 >
+						 
+				</mx:Tree>
+				
+			</s:NavigatorContent>
+			
+		</mx:TabNavigator>
+		
+	</s:VGroup>
+</csxs:CSExtension>

@@ -1,0 +1,101 @@
+<?xml version="1.0"?>
+<!-- containers\layouts\myComponents\MyLoginForm.mxml -->
+<mx:TitleWindow xmlns:fx="http://ns.adobe.com/mxml/2009"
+				xmlns:s="library://ns.adobe.com/flex/spark"
+				xmlns:csxs="com.adobe.csxs.core.*"
+				xmlns:mx="library://ns.adobe.com/flex/mx"
+				backgroundColor="#5C5C5C">
+	
+	<fx:Script>
+		<![CDATA[
+			import mx.collections.ArrayCollection;
+			import mx.controls.Alert;
+			import mx.managers.PopUpManager;
+			import mx.rpc.AsyncToken;
+			import mx.rpc.events.FaultEvent;
+			import mx.rpc.events.ResultEvent;
+			
+			import services.hdserviceapi.HDServiceAPI;
+			//var myWS: HDServiceAPI = null;
+			public var userId:String = "";
+			public var userDepartment:String = "";
+			public var userFullName:String = "";
+			//login button
+			protected function button1_clickHandler(event:MouseEvent):void
+			{
+				// TODO Auto-generated method stub
+				//PopUpManager.removePopUp(this);
+				if(username.text == "" || password.text == ""){
+					Alert.show("Tên đăng nhập và mật khẩu không được để trống");
+				}else{
+					//Alert.show("user: "+ username.text +" pass: " + password.text);
+					var myWS: HDServiceAPI = new HDServiceAPI();
+					var sql:String = "SELECT SU.USER_ID FROM SYSTEM_USERS SU WHERE SU.USER_NAME = '" + username.text + "' and SU.PASSWORD = dbo.MD5(dbo.MD5('" + password.text + "'))";
+					trace("thanh debug: " + sql);
+					myWS.addEventListener("result",login_resultHandler);
+					myWS.ExecuteReadSQL(sql);
+				}
+			}
+			
+			protected function login_resultHandler(event:ResultEvent):void{
+				trace("thanh debug: dang nhap = " + event.result.length);
+				if(event.result.length == 0){
+					Alert.show("Đăng nhập không thành công ");
+				}else{
+					var res:String = event.result[0][0] as String;
+					PopUpManager.removePopUp(this);
+					trace("thanh debug: USER_ID =  " + res);
+					userId = res;
+					getUserInfor(userId);
+				}
+			}
+			
+			protected function btn_cancel_clickHandler(event:MouseEvent):void
+			{
+				// TODO Auto-generated method stub
+				PopUpManager.removePopUp(this);
+			}
+			protected function getUserInfor(userId:String):void{
+				//var departmentName:String = "";
+				var myWS:HDServiceAPI = new HDServiceAPI();
+				var sql:String = "SELECT d.DEPARTMENT_NAME, su.FULL_NAME FROM SYSTEM_USERS su " +
+					" INNER JOIN EMPLOYEE e ON su.EMPLOYEE_ID = e.EMPLOYEE_ID " +
+					" INNER JOIN DEPARTMENT d ON e.DEPARTMENT_ID = d.DEPARTMENT_ID " +
+					" WHERE su.USER_ID = "+userId;
+				trace("sql = "+sql);
+				myWS.addEventListener("result",getDepartment_resultHandler);
+				myWS.ExecuteReadSQL(sql);
+				trace("vua excute xong");
+				//return departmentName;
+			}
+			
+			protected function getDepartment_resultHandler(event:ResultEvent):void{
+				//var res:ArrayCollection = event.result as ArrayCollection;
+				
+				if(event.result.length>0){
+					trace("thanh debug:project ID  = "+event.result[0]);
+					userDepartment = event.result[0][0];
+					userFullName = event.result[0][1];
+				}else{
+					trace("userid: "+userId);
+				}
+				
+				//insertClip(res);
+			}
+		]]>
+	</fx:Script>
+	<mx:Form >
+		<mx:FormItem label="Tài khoản:">
+			<mx:TextInput id="username" width="100%"/>
+		</mx:FormItem> 
+		<mx:FormItem label="Mật khẩu:">
+			<mx:TextInput id="password" 
+						  displayAsPassword="true" 
+						  width="100%"/>
+		</mx:FormItem> 
+	</mx:Form>
+	<mx:HBox> 
+		<mx:Button id="btn_login" label="Đăng nhập" click="button1_clickHandler(event)"/> 
+		<mx:Button id="btn_cancel" label="Hủy" click="btn_cancel_clickHandler(event)"/>
+	</mx:HBox> 
+</mx:TitleWindow>
