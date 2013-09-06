@@ -15,7 +15,7 @@
 			import mx.rpc.events.FaultEvent;
 			import mx.rpc.events.ResultEvent;
 			
-			import services.hdserviceapi.HDServiceAPI;
+			import services.hddataservices.HDDataservices;
 			//var myWS: HDServiceAPI = null;
 			public var userId:String = "";
 			public var userDepartment:String = "";
@@ -29,11 +29,11 @@
 					Alert.show("Tên đăng nhập và mật khẩu không được để trống");
 				}else{
 					//Alert.show("user: "+ username.text +" pass: " + password.text);
-					var myWS: HDServiceAPI = new HDServiceAPI();
+					var myWS: HDDataservices = new HDDataservices();
 					var sql:String = "SELECT SU.USER_ID FROM SYSTEM_USERS SU WHERE SU.USER_NAME = '" + username.text + "' and SU.PASSWORD = dbo.MD5(dbo.MD5('" + password.text + "'))";
-					trace("thanh debug: " + sql);
+					//trace("thanh debug: " + sql);
 					myWS.addEventListener("result",login_resultHandler);
-					myWS.ExecuteReadSQL(sql);
+					myWS.executeSQL(sql);
 				}
 			}
 			
@@ -57,14 +57,14 @@
 			}
 			protected function getUserInfor(userId:String):void{
 				//var departmentName:String = "";
-				var myWS:HDServiceAPI = new HDServiceAPI();
+				var myWS:HDDataservices = new HDDataservices();
 				var sql:String = "SELECT d.DEPARTMENT_NAME, su.FULL_NAME FROM SYSTEM_USERS su " +
 					" INNER JOIN EMPLOYEE e ON su.EMPLOYEE_ID = e.EMPLOYEE_ID " +
 					" INNER JOIN DEPARTMENT d ON e.DEPARTMENT_ID = d.DEPARTMENT_ID " +
 					" WHERE su.USER_ID = "+userId;
 				trace("sql = "+sql);
 				myWS.addEventListener("result",getDepartment_resultHandler);
-				myWS.ExecuteReadSQL(sql);
+				myWS.executeSQL(sql);
 				trace("vua excute xong");
 				//return departmentName;
 			}
@@ -85,7 +85,7 @@
 		]]>
 	</fx:Script>
 	<mx:Form >
-		<mx:FormItem label="Tài khoản:">
+		<mx:FormItem label="Tài khoản1:">
 			<mx:TextInput id="username" width="100%"/>
 		</mx:FormItem> 
 		<mx:FormItem label="Mật khẩu:">

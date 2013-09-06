@@ -8,7 +8,6 @@
 	<fx:Script>
 		<![CDATA[
 			import HDStation2.Login;
-			
 			import com.adobe.csawlib.premiere.Premiere;
 			import com.adobe.csxs.core.CSInterface;
 			import com.adobe.csxs.core.csxs_internal;
@@ -43,7 +42,7 @@
 			import mx.rpc.events.ResultEvent;
 			import mx.utils.ArrayUtil;
 			
-			import services.hdserviceapi.HDServiceAPI;
+			import services.hddataservices.HDDataservices;
 			
 			import spark.components.Application;
 			import spark.events.GridEvent;
@@ -53,7 +52,7 @@
 			[Bindable]
 			
 			private var hostName:String = HostObject.mainExtension;
-			private var myWS: HDServiceAPI = null;
+			private var myWS: HDDataservices = null;
 			private var currentUser:String = null;
 			private var loginDialog: Login ;
 			private var masterclips:ArrayCollection = new ArrayCollection();
@@ -92,14 +91,14 @@
 		
 			protected function getUserInfor(userId:String):void{
 				//var departmentName:String = "";
-				myWS = new HDServiceAPI();
+				myWS = new HDDataservices();
 				var sql:String = "SELECT d.DEPARTMENT_NAME, su.FULL_NAME FROM SYSTEM_USERS su " +
 					" INNER JOIN EMPLOYEE e ON su.EMPLOYEE_ID = e.EMPLOYEE_ID " +
 					" INNER JOIN DEPARTMENT d ON e.DEPARTMENT_ID = d.DEPARTMENT_ID " +
 					" WHERE su.USER_ID = "+userId;
 				trace("sql = "+sql);
 				myWS.addEventListener("result",getDepartment_resultHandler);
-				myWS.ExecuteReadSQL(sql);
+				myWS.executeSQL(sql);
 				trace("vua excute xong");
 				//return departmentName;
 			}
@@ -254,7 +253,7 @@
 			
 			//init function
 			protected function initTree():void{
-				myWS = new HDServiceAPI();
+				myWS = new HDDataservices();
 				var sql:String = "SELECT department.DEPARTMENT_NAME as N'deparementname', " +
 					"masterclip.MASTER_CLIP_NAME AS 'masterclipname', " +
 					"systemuser.FULL_NAME AS 'username', " +
@@ -270,16 +269,17 @@
 					"WHERE infortape.PROJECT_ID IS NOT NULL "+
 					"order by department.DEPARTMENT_NAME,masterclip.MASTER_CLIP_NAME, systemuser.USER_NAME "+
 					"FOR XML AUTO,root('list') ";
+				trace(sql);
 				myWS.addEventListener("result",treeRender_resultHandler);
-				myWS.SQLReaderXML(sql);
+				myWS.treeRender(sql);
 
 			}
 			
 			private function sectorRender():void{
-				myWS = new HDServiceAPI();
+				myWS = new HDDataservices();
 				var sql:String = "SELECT S.SECTOR_ID ,S.SECTOR_NAME FROM SECTOR S";
 				myWS.addEventListener("result",cbxSector_resultHandler);
-				myWS.ExecuteReadSQL(sql);
+				myWS.executeSQL(sql);
 			}
 			
 			private function cbxSector_resultHandler(event:ResultEvent):void{
@@ -292,10 +292,10 @@
 			}
 			
 			private function comboboxRender():void{
-				myWS = new HDServiceAPI();
+				myWS = new HDDataservices();
 				var sql:String = "SELECT MC.MASTER_CLIP_ID AS data, MC.MASTER_CLIP_NAME AS label FROM MASTER_CLIP MC";
 				myWS.addEventListener("result",cbxrender_resultHandler);
-				myWS.ExecuteReadSQL(sql);
+				myWS.executeSQL(sql);
 			}
 			private function cbxrender_resultHandler(event:ResultEvent):void{
 				var res:ArrayCollection = event.result as ArrayCollection;
@@ -323,8 +323,7 @@
 			protected function treeRender_resultHandler(event:ResultEvent):void
 			{
 				trace("begin treerender");
-				var res:String = event.result as String;
-				//trace("res = "+res.toXMLString());
+				var res:String = event.result.tree as String;
 				var xmllist:XMLList = new XMLList(res);
 				treeData = new XMLListCollection(xmllist);
 				trace("done");
@@ -416,7 +415,7 @@
 					var sql:String = "INSERT INTO CLIP_PROJECT (NAME, DESCRIPTION, MASTER_CLIP_ID, USER_ID) VALUES ('"+projectName+"','"+description+"',"+masterclipId+","+loginDialog.userId+") select SCOPE_IDENTITY();";
 					trace("thanh debug insertProject: " + sql);
 					myWS.addEventListener("result",insertProject_resultHandler);
-					myWS.IdentifyExecute(sql);
+					myWS.indexAction();
 				}else{
 					Alert.show("Xin mời nhập đầy đủ thông tin");
 				}
@@ -546,10 +545,10 @@
 			}
 			
 			public function cliptype_Render():void{
-				myWS = new HDServiceAPI();
+				myWS = new HDDataservices();
 				var sql:String = "SELECT ct.TYPE_DESCRIPTION FROM CLIP_TYPE ct";
 				myWS.addEventListener("result",cliptype_resultHander);
-				myWS.ExecuteReadSQL(sql);
+				//myWS.ExecuteReadSQL(sql);
 			}
 			
 			protected function cliptype_resultHander(event:ResultEvent):void{
@@ -649,12 +648,12 @@
 			{
 				var nodeData:XML = new XML(event.itemRenderer.data);
 				var id:String = nodeData.attribute("id");
-				myWS = new HDServiceAPI();
+				myWS = new HDDataservices();
 				if(id != ""){
 					trace("ID = "+id);
 					var sql:String = "SELECT * FROM INFORTAPE WHERE PROJECT_ID = "+id;
 					myWS.addEventListener("result",cliptable_resultrender);
-					myWS.ExecuteReadSQL(sql);
+					//myWS.ExecuteReadSQL(sql);
 				}else{
 					trace("ID = null");
 				}
@@ -713,9 +712,7 @@
 			
 		]]>
 	</fx:Script>
-	<fx:Declarations>
-		<s:WebService id="clipRequest" fault="clipRequest_faultHandler(event)" wsdl="http://192.168.1.201:1505/HDServiceAPI/services/HDServiceAPI?wsdl"/>
-	</fx:Declarations>
+	
 	<s:VGroup width="999" height="100%" horizontalAlign="center" verticalAlign="middle">
 		<mx:TabNavigator  x="-3" y="-1" width="998" height="541" paddingLeft="0" paddingTop="0">
 			<s:NavigatorContent width="100%" height="100%" label="Ingest">
